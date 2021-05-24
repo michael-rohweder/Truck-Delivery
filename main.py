@@ -1,12 +1,16 @@
-# WGU C950 TRUCK DELIVERY ROUTING PROGRAM
-# Designed/Developed by Michael Rohweder
-# Student ID: 000970364
+# Designed/Developed by Michael Rohweder - Student ID: 000970364
 # C950 Task 1
 
 import csv
 import datetime
 
-packages = []
+
+'''
+GLOBAL VARIABLES
+'''
+package_hash_table = ""
+num_lines = 0
+
 distances = []
 
 truck1_delivery_time = datetime.time(8, 0, 0)
@@ -32,12 +36,42 @@ next_stop = ""
 total_miles = 0
 
 
-class Colors:
+class PackageHashTable:
+    def __init__(self, size):  # Size is passed in from load_files, which reads the csv file for the max lines
+        self.size = size
+        self.hash_map = []     # Initialize the hash map with an empty array
+        for _ in range(size):  # Fill the hash map with the required size of empty arrays
+            self.hash_map.append([])
+
+    def insert(self, val):      # Insert a value into the hash map: val is passed as a Package object
+        key = val.id_num        # hash key
+        bucket = hash(int(key)) % self.size  # bucket number
+        if self.hash_map[bucket] is not None:  # if this bucket is not empty
+            for kv in self.hash_map[bucket]:   # loops the items in the bucket
+                if kv.id_num == key:           # if this item is in the bucket
+                    kv = val                   # set bucket item to this item
+                    return True
+            self.hash_map[bucket].append(val)  # otherwise, add this item to the bucket
+            return True
+        else:
+            self.hash_map[bucket] = val         # if bucket is empty, add this item to bucket
+            return True
+
+    def get(self, key):
+        bucket = hash(int(key)) % self.size     # bucket number
+        if self.hash_map[bucket] is not None:   # bucket is not empty
+            for kv in self.hash_map[bucket]:    # loop items in bucket
+                if int(kv.id_num) == int(key):  # item is found
+                    return kv                   # return item
+        return None                             # otherwise return nothing
+
+
+class Colors:                                   # class for formatting colors in the console
     HEADER = '\033[95m'
     NORMAL = '\033[0m'
 
 
-class Package:
+class Package:                                  # class for creating the Package objects
     def __init__(self, id_num, address, city, state, zip_code, deadline, weight, notes, status,
                  miles_from_last_stop, delivery_time, truck_departure_time):
         self.id_num = id_num
@@ -54,42 +88,56 @@ class Package:
         self.truck_departure_time = truck_departure_time
 
 
-def get_user_time():
+def get_user_time():                            # function to convert the user entered time to datetime object
     try:
+        global user_entered_time
         time = input("Enter time to check: (hh:mm:ss) ")
         time_split = time.split(':')
-        global user_entered_time
         user_entered_time = datetime.time(int(time_split[0]), int(time_split[1]), int(time_split[2]))
         return user_entered_time
-    except ValueError:
+    except ValueError:                          # user entered invalid data
         print("\nInvalid time entered")
         main()
-    except IndexError:
+    except IndexError:                          # user entered invalid data
         print("\nInvalid time entered")
         main()
 
 
-def load_files():
-    with open("manifest.csv") as manifest:
-        # manifest_reader = csv.reader(manifest, delimiter=',')
+def load_files():                               # Load the CSV files for processing
+    global package_hash_table
+    global num_lines
+    num_lines = len(open("manifest.csv").readlines())   # number of lines in the csv file
+    package_hash_table = PackageHashTable(num_lines)    # create the hash table with the required number of lines
+    with open("manifest.csv") as manifest:              # open the manifest.csv file
+        # Complexity O(N)
+        for rows in manifest.readlines():               # loop the file and store the line in the rows variable
+            line = rows.split(",")                      # split the values by ','
 
-        for rows in manifest.readlines():
-            test = rows.split(",")
-            package = Package(test[0], test[1], test[2], test[3], test[4], test[5], test[6], test[7], "", "", "", "")
-            packages.append(package)
-    with open("distance_table.csv") as distance_table:
+            # create a package object for this line
+            package = Package(line[0], line[1], line[2], line[3], line[4], line[5], line[6], line[7], "", "", "", "")
+            if package.notes == "\n":                   # if no package notes, append NONE
+                package.notes = "NONE"
+            package_hash_table.insert(package)          # insert the package into the hash table
+    with open("distance_table.csv") as distance_table:  # open the distance table csv
         distance_reader = csv.reader(distance_table, delimiter=',')
         for rows in distance_reader:
-            distances.append(rows)
+            distances.append(rows)                      # append the distance date to the list
     load_trucks()
 
 
 def load_trucks():
-    for package in packages:
-        if "Wrong address" in package.notes:
+    global package_hash_table
+
+    # Complexity = O(N)
+    for index in range(1, num_lines + 1):               # loop the hash table
+        package = package_hash_table.get(index)         # create a package object for each iteration of the loop
+        if "Wrong address" in package.notes:            # update the incorrect address
             package.address = "410 S State St"
             package.zip_code = "84111"
 
+        '''
+        preliminary sorting of packages onto trucks
+        '''
         if package.deadline != "EOD":
             if "truck 2" not in package.notes and "Delayed" not in package.notes:
                 package.truck_departure_time = truck1_delivery_start
@@ -126,6 +174,10 @@ def main():
 
     command = input("\nEnter a command (1 - 4): ")
 
+    '''
+    main menu
+    '''
+
     try:
         if int(command) == 1:
             get_package_status()
@@ -143,13 +195,18 @@ def main():
         print("\nError, unrecognized command")
         main()
 
+
 def optimize_trucks():
+
+    # truck optimization function
+
     global current_stop
     global total_miles
     global truck1_delivery_time
     global truck2_delivery_time
     global truck3_delivery_time
     global user_entered_time
+
     next_distance = 100
     current_stop_row = -1
     current_stop_col = -1
@@ -165,13 +222,14 @@ def optimize_trucks():
     Update the total distance driven for truck 1
     '''
 
-    while len(truck1) > 0:
+    while len(truck1) > 0:   # find the current stop on the distance table
+        # O(N)
         for distance in distances:
             if distance[1] == current_stop:
                 current_stop_row = distance[0]
                 current_stop_col = int(current_stop_row) + 2
-
-        for row in range(int(current_stop_row), len(distances)):
+        # O(N^2)
+        for row in range(int(current_stop_row), len(distances)):  # find the closest stop going down the distance table
             check_distance = distances[row][current_stop_col]
             if float(next_distance) > float(check_distance) > 0:
                 for package in truck1:
@@ -179,7 +237,8 @@ def optimize_trucks():
                         next_distance = check_distance
                         next_address = distances[row][1]
 
-        for col in range(int(current_stop_col), 2, -1):
+        # O(N^2)
+        for col in range(int(current_stop_col), 2, -1):  # find the closest stop going left on the table
             check_distance = float(distances[int(current_stop_row)][col])
             if float(check_distance) < float(next_distance):
                 for package in truck1:
@@ -188,11 +247,18 @@ def optimize_trucks():
                         next_distance = check_distance
                         next_address = distances[int(col) - 2][1]
 
-        for package in truck1[:]:
+        '''
+        absolute closest stop has been located
+        '''
+        # O(N)
+        for package in truck1[:]:    # check if the closest stop on truck 1 (COPY THE LIST FOR CONCURRENT MODIFICATION)
             if next_address == package.address:
-                package.status = "Loaded onto delivery truck"
+                package.status = "En Route"
                 package.miles_from_last_hub = next_distance
 
+                '''
+                Figure out the delivery time of the package
+                '''
                 delivery_hour = truck1_delivery_time.hour
                 delivery_time_in_minutes = (float(next_distance) / 18) * 60
                 delivery_time_in_seconds = (delivery_time_in_minutes % 1) * 60
@@ -213,18 +279,19 @@ def optimize_trucks():
                     total_second_add -= 60
                 truck1_delivery_time = datetime.time(delivery_hour, total_minute_add, int(delivery_time_in_seconds))
                 package.delivery_time = truck1_delivery_time
+
                 current_stop = package.address
                 optimized_truck1.append(package)
-                truck1.remove(package)
-                total_distance_truck1 += float(next_distance)
+                truck1.remove(package)   # Remove this stop from truck one and add it to optimized truck1
+                total_distance_truck1 += float(next_distance)  # update truck 1 distance driven
                 next_distance = 100
                 next_address = ""
 
     print("Total distance truck 1: " + str(total_distance_truck1))
-    total_miles += total_distance_truck1
+    total_miles += total_distance_truck1  # update total miles for all trucks
 
     '''
-    Optimization for truck 2
+    Optimization for truck 2 - same as truck 1
     '''
     current_stop = "4001 South 700 East"
 
@@ -253,7 +320,7 @@ def optimize_trucks():
 
         for package in truck2[:]:
             if next_address == package.address:
-                package.status = "Loaded onto delivery truck"
+                package.status = "En Route"
                 package.miles_from_last_hub = next_distance
                 delivery_hour = truck2_delivery_time.hour
 
@@ -286,7 +353,7 @@ def optimize_trucks():
     total_miles += total_distance_truck2
 
     '''
-        Optimization for truck 3
+        Optimization for truck 3 same as truck 1 & 2
     '''
     current_stop = "4001 South 700 East"
 
@@ -315,7 +382,7 @@ def optimize_trucks():
 
         for package in truck3[:]:
             if next_address == package.address:
-                package.status = "Loaded onto delivery truck"
+                package.status = "En Route"
                 package.miles_from_last_hub = next_distance
                 delivery_hour = truck3_delivery_time.hour
 
@@ -346,7 +413,7 @@ def optimize_trucks():
 
     print("Total distance truck 3: " + str(total_distance_truck3))
     total_miles += total_distance_truck3
-    print("Total miles driven: " + str(total_miles))
+    print("Total miles driven: " + str(total_miles))  # print total distance traveled for all trucks
 
     main()
 
@@ -355,43 +422,63 @@ def get_package_status():
     package_id = input("Enter package ID: ")
     user_time = get_user_time()
 
-    for package in packages:
-        if package.id_num == package_id:
-            if user_time > package.delivery_time:
-                package.status = "Delivered at " + str(package.delivery_time)
-            elif package.delivery_time > user_time > package.truck_departure_time:
-                package.status = "Loaded on delivery truck"
-            elif user_time < truck1_delivery_start:
-                package.status = "At delivery hub"
-            if "Delayed" in package.notes and user_time < datetime.time(9, 5, 0):
-                package.status = "DELAYED IN FLIGHT"
-            print("\nID:            " + package.id_num)
-            print("Address:       " + package.address)
-            print("City:          " + package.city)
-            print("State:         " + package.state)
-            print("Zip:           " + package.zip_code)
-            print("Deadline:      " + package.deadline)
-            print("Weight:        " + package.weight)
-            print("Notes:         " + package.notes)
-            print("Status:        " + package.status)
+    # complexity = O(1)
+    package = package_hash_table.get(package_id)   # get the package from the hash table
+
+    '''
+    update package status based on users time
+    '''
+    if package.id_num == package_id:
+        if user_time > package.delivery_time:
+            package.status = "Delivered at " + str(package.delivery_time)
+        elif package.delivery_time > user_time > package.truck_departure_time:
+            package.status = "En Route"
+        elif user_time < truck1_delivery_start:
+            package.status = "At delivery hub"
+        if "Delayed" in package.notes and user_time < datetime.time(9, 5, 0):
+            package.status = "DELAYED IN FLIGHT"
+
+        '''
+        print package status to console
+        '''
+        print(Colors.HEADER, "\nID:            ", Colors.NORMAL, package.id_num)
+        print(Colors.HEADER + "Address:       ", Colors.NORMAL, package.address)
+        print(Colors.HEADER + "City:          ", Colors.NORMAL, package.city)
+        print(Colors.HEADER + "State:         ", Colors.NORMAL, package.state)
+        print(Colors.HEADER + "Zip:           ", Colors.NORMAL, package.zip_code)
+        print(Colors.HEADER + "Deadline:      ", Colors.NORMAL, package.deadline)
+        print(Colors.HEADER + "Weight:        ", Colors.NORMAL, package.weight)
+        print(Colors.HEADER + "Notes:         ", Colors.NORMAL, package.notes)
+        print(Colors.HEADER + "Status:        ", Colors.NORMAL, package.status)
     main()
 
 
 def get_all_deliveries():
     user_time = get_user_time()
-    print("All deliveries:\n")
+    print("\nAll deliveries:\n")
     print(Colors.HEADER, '%-3s' % "ID", '%-20s' % "ADDRESS", '%-15s' % "CITY",
           '%-7s' % "STATE", '%-6s' % "ZIP", '%-12s' % "DEADLINE",
           '%-8s' % "WEIGHT", '%-17s' % "NOTES", '%-15s' % "STATUS", Colors.NORMAL)
-    for package in packages:
+
+    # Complexity = O(N)
+    for index in range(1, num_lines + 1):
+        # O(1)
+        package = package_hash_table.get(index)
+
+        '''
+        update package status based on users time        
+        '''
         if user_time < package.truck_departure_time:
             package.status = "At hub"
         elif package.truck_departure_time <= user_time < package.delivery_time:
-            package.status = "On delivery truck"
+            package.status = "En Route"
         elif user_time >= package.delivery_time:
             package.status = "Delivered at " + str(package.delivery_time)
-        if "Delayed" in package.notes and user_time < datetime.time(9,5,0):
+        if "Delayed" in package.notes and user_time < datetime.time(9, 5, 0):
             package.status = "DELAYED IN FLIGHT"
+        '''
+        Print package information
+        '''
         print('%-4s' % package.id_num, '%-20s' % package.address[0:15], '%-15s' % package.city[0:15],
               '%-7s' % package.state, '%-6s' % package.zip_code, '%-12s' % package.deadline,
               '%-8s' % package.weight, '%-17s' % package.notes[0:15], '%-15s' % package.status)
@@ -400,21 +487,24 @@ def get_all_deliveries():
 
 def get_truck_status(truck):
     user_time = get_user_time()
-    for package in packages:
-        if user_time < package.truck_departure_time:
-            package.status = "At hub"
-        elif package.truck_departure_time <= user_time < package.delivery_time:
-            package.status = "On delivery truck"
-        elif user_time >= package.delivery_time:
-            package.status = "Delivered at " + str(package.delivery_time)
-        if "Delayed" in package.notes and user_time < datetime.time(9, 5, 0):
-            package.status = "DELAYED IN FLIGHT"
+
     if truck == 1:
         if len(optimized_truck1) != 0:
-            print(Colors.HEADER, '%-3s' % "ID", '%-20s' % "ADDRESS", '%-15s' % "CITY",
+            print(Colors.HEADER, '\n%-4s' % "ID", '%-20s' % "ADDRESS", '%-15s' % "CITY",
                   '%-7s' % "STATE", '%-6s' % "ZIP", '%-12s' % "DEADLINE",
                   '%-8s' % "WEIGHT", '%-17s' % "NOTES", '%-15s' % "STATUS", Colors.NORMAL)
+            # O(N)
             for package in optimized_truck1:
+
+                if user_time < package.truck_departure_time:
+                    package.status = "At hub"
+                elif package.truck_departure_time <= user_time < package.delivery_time:
+                    package.status = "En Route"
+                elif user_time >= package.delivery_time:
+                    package.status = "Delivered at " + str(package.delivery_time)
+                if "Delayed" in package.notes and user_time < datetime.time(9, 5, 0):
+                    package.status = "DELAYED IN FLIGHT"
+
                 print('%-4s' % package.id_num, '%-20s' % package.address[0:15], '%-15s' % package.city[0:15],
                       '%-7s' % package.state, '%-6s' % package.zip_code, '%-12s' % package.deadline,
                       '%-8s' % package.weight, '%-17s' % package.notes[0:15], '%-15s' % package.status)
@@ -426,7 +516,18 @@ def get_truck_status(truck):
             print(Colors.HEADER, '%-3s' % "ID", '%-20s' % "ADDRESS", '%-15s' % "CITY",
                   '%-7s' % "STATE", '%-6s' % "ZIP", '%-12s' % "DEADLINE",
                   '%-8s' % "WEIGHT", '%-17s' % "NOTES", '%-15s' % "STATUS", Colors.NORMAL)
+            # O(N)
             for package in optimized_truck2:
+
+                if user_time < package.truck_departure_time:
+                    package.status = "At hub"
+                elif package.truck_departure_time <= user_time < package.delivery_time:
+                    package.status = "En Route"
+                elif user_time >= package.delivery_time:
+                    package.status = "Delivered at " + str(package.delivery_time)
+                if "Delayed" in package.notes and user_time < datetime.time(9, 5, 0):
+                    package.status = "DELAYED IN FLIGHT"
+
                 print('%-4s' % package.id_num, '%-20s' % package.address[0:15], '%-15s' % package.city[0:15],
                       '%-7s' % package.state, '%-6s' % package.zip_code, '%-12s' % package.deadline,
                       '%-8s' % package.weight, '%-17s' % package.notes[0:15], '%-15s' % package.status)
@@ -438,7 +539,18 @@ def get_truck_status(truck):
             print(Colors.HEADER, '%-3s' % "ID", '%-20s' % "ADDRESS", '%-15s' % "CITY",
                   '%-7s' % "STATE", '%-6s' % "ZIP", '%-12s' % "DEADLINE",
                   '%-8s' % "WEIGHT", '%-17s' % "NOTES", '%-15s' % "STATUS", Colors.NORMAL)
+            # O(N)
             for package in optimized_truck3:
+
+                if user_time < package.truck_departure_time:
+                    package.status = "At hub"
+                elif package.truck_departure_time <= user_time < package.delivery_time:
+                    package.status = "En Route"
+                elif user_time >= package.delivery_time:
+                    package.status = "Delivered at " + str(package.delivery_time)
+                if "Delayed" in package.notes and user_time < datetime.time(9, 5, 0):
+                    package.status = "DELAYED IN FLIGHT"
+
                 print('%-4s' % package.id_num, '%-20s' % package.address[0:15], '%-15s' % package.city[0:15],
                       '%-7s' % package.state, '%-6s' % package.zip_code, '%-12s' % package.deadline,
                       '%-8s' % package.weight, '%-17s' % package.notes[0:15], '%-15s' % package.status)
